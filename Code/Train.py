@@ -69,31 +69,40 @@ def train():
                         shuffle=False, num_workers=2)
     step=0
     for  X,Y in training_generator:
+
         X = X.cuda().float()
         Y = Y.cuda().float()
         F_xy = model(X,Y)
         F_yx = model(Y,X)
+    
         X_Y = transform(X,F_xy.permute(0,2,3,4,1)*range_flow,grid)
         Y_X = transform(Y,F_yx.permute(0,2,3,4,1)*range_flow,grid)
-        F_xy_ = transform(-F_xy,F_xy.permute(0,2,3,4,1)*range_flow,grid)
-        F_yx_ = transform(-F_yx,F_yx.permute(0,2,3,4,1)*range_flow,grid)
+        # Note that, the generation of inverse flow depends on the definition of transform. 
+        # The generation strategies are sligtly different for the backward warpping and forward warpping
+        F_xy_ = transform(-F_yx,F_xy.permute(0,2,3,4,1)*range_flow,grid)
+        F_yx_ = transform(-F_xy,F_yx.permute(0,2,3,4,1)*range_flow,grid)
         loss1 = loss_similarity(Y,X_Y) + loss_similarity(X,Y_X)
         loss2 = loss_inverse(F_xy*range_flow,F_xy_*range_flow) + loss_inverse(F_yx*range_flow,F_yx_*range_flow)
+        
+        
         loss3 =  loss_antifold(F_xy*range_flow) + loss_antifold(F_yx*range_flow)
         loss4 =  loss_smooth(F_xy*range_flow) + loss_smooth(F_yx*range_flow)
         loss = loss1+inverse*loss2 + antifold*loss3 + smooth*loss4
         optimizer.zero_grad()           # clear gradients for this training step
         loss.backward()                 # backpropagation, compute gradients
         optimizer.step()                # apply gradients
-        lossall[:,step] = np.array([loss.data[0],loss1.data[0],loss2.data[0],loss3.data[0],loss4.data[0]])
-        sys.stdout.write("\r" + 'step "{0}" -> training loss "{1:.4f}" - sim "{2:.4f}" - inv "{3:.4f}" - ant "{4:.4f}" -smo "{5:.4f}" '.format(step, loss.data[0],loss1.data[0],loss2.data[0],loss3.data[0],loss4.data[0]))
+        lossall[:,step] = np.array([loss.item(),loss1.item(),loss2.item(),loss3.item(),loss4.item()])
+        sys.stdout.write("\r" + 'step "{0}" -> training loss "{1:.4f}" - sim "{2:.4f}" - inv "{3:.4f}" \
+            - ant "{4:.4f}" -smo "{5:.4f}" '.format(step, loss.item(),loss1.item(),loss2.item(),loss3.item(),loss4.item()))
         sys.stdout.flush()
         if(step % n_checkpoint == 0):
             modelname = model_dir + '/' + str(step) + '.pth'
             torch.save(model.state_dict(), modelname)
         step+=1
     np.save(model_dir+'/loss.npy',lossall)
-
-imgshape = (144, 192, 160)
-range_flow = 7
-train()
+    
+    
+if __name__ == '__main__':
+    imgshape = (144, 192, 160)
+    range_flow = 7
+    train()
